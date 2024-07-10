@@ -1,15 +1,24 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jul  9 18:14:31 2024
+
+@author: harumi
+"""
+
 import pysam
 import pandas as pd
 import matplotlib.pyplot as plt
+from Bio import SeqIO
 
-def categorize_chimeric_reads(samfile, chrom, start, end):
+def categorize_chimeric_reads(samfile, chrom, start, end, valid_read_names):
     filtered_reads = []
     ITRtoITRinsert_reads = []
     read_names_processed = set()  # Set to track processed read names
 
     for read in samfile.fetch(chrom, start, end):
-        if read.query_name in read_names_processed:
-            continue  # Skip this read if it has already been processed
+        if read.query_name in read_names_processed or read.query_name not in valid_read_names:
+            continue  # Skip this read if it has already been processed or is not in valid read names
         if read.has_tag('SA'):
             read_names_processed.add(read.query_name)
             original_chrom = read.reference_name
@@ -24,6 +33,24 @@ def categorize_chimeric_reads(samfile, chrom, start, end):
                         ITRtoITRinsert_reads.append((read.query_name, f"{original_chrom}:{original_pos}", f"{c_chrom}:{c_pos} {c_strand}", c_cigar))
     return filtered_reads, ITRtoITRinsert_reads
 
+def filter_fastq_and_extract_read_names(fastq_file, read_names):
+    """Filter a FASTQ file based on a set of read names, exclude reads with 'GGGGGGGGGG', and return the valid read names."""
+    valid_read_names = set()
+    with open(fastq_file, 'r') as fq:
+        while True:
+            header = fq.readline()  # Read the header line
+            if not header:
+                break  # End of file reached
+            sequence = fq.readline()  # Sequence line
+            plus = fq.readline()  # '+' line
+            quality = fq.readline()  # Quality line
+
+            # Extract the read name from the header and check if it's in the provided set
+            read_name_in_header = header.split()[0][1:]  # Assumes read name is the first part of the header, removes '@'
+            if read_name_in_header in read_names and "GGGGGGGGGG" not in sequence:
+                valid_read_names.add(read_name_in_header)
+    return valid_read_names
+
 def process_barcode(barcode):
     base_path = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/'
     bam_path = f'{base_path}BC{barcode}_deduplicated.bam'
@@ -33,7 +60,13 @@ def process_barcode(barcode):
     region_start = 600
     region_end = 900
 
-    filtered_chimeric_reads, ITRtoITRinsert_reads = categorize_chimeric_reads(samfile, chromosome_name, region_start, region_end)
+    # Filter FASTQ file and get valid read names
+    fastq_file = f'/Users/gwisna/Desktop/with__pear/BC{barcode}/BC{barcode}_umi.fastq'
+    read_names_in_txt = set(pd.read_csv(f'{base_path}BC{barcode}_chimeric_reads_results_filtered.txt', delimiter='\t')['Read Name'])
+    valid_read_names = filter_fastq_and_extract_read_names(fastq_file, read_names_in_txt)
+
+    # Only process reads with valid read names
+    filtered_chimeric_reads, ITRtoITRinsert_reads = categorize_chimeric_reads(samfile, chromosome_name, region_start, region_end, valid_read_names)
 
     # Save filtered chimeric reads
     with open(f'{base_path}BC{barcode}_chimeric_reads_results_filtered.txt', 'w') as file:
@@ -71,17 +104,12 @@ def process_barcode(barcode):
     location_counts_ITRtoITRinsert = data_ITRtoITRinsert.groupby(['Chrom', 'Position']).size().reset_index(name='Counts')
     location_counts_ITRtoITRinsert.to_csv(f'{base_path}BC{barcode}_integration_site_distribution_ITRtoITRinsert.csv', index=False)
 
-# Loop over bar
+    # Generate final filtered FASTQ file
+    output_fastq = f'{base_path}BC{barcode}_chimeric_reads_results_filtered.fastq'
+    filter_fastq(fastq_file, valid_read_names, output_fastq)
 
-
-# Loop over barcodes from 31 to 40
-for barcode in range(31, 41):
-    process_barcode(barcode)
-
-######To get fastq file from filtered bam#######
-
-def filter_fastq(fastq_file, read_names, output_file):
-    """Filter a FASTQ file based on a set of read names and write the matching records to a new file."""
+def filter_fastq(fastq_file, valid_read_names, output_file):
+    """Filter a FASTQ file based on a set of valid read names and write the matching records to a new file."""
     with open(fastq_file, 'r') as fq, open(output_file, 'w') as out_fq:
         while True:
             header = fq.readline()  # Read the header line
@@ -93,19 +121,11 @@ def filter_fastq(fastq_file, read_names, output_file):
 
             # Extract the read name from the header and check if it's in the provided set
             read_name_in_header = header.split()[0][1:]  # Assumes read name is the first part of the header, removes '@'
-            if read_name_in_header in read_names:
+            if read_name_in_header in valid_read_names:
                 out_fq.write(header + sequence + plus + quality)
 
 # Loop over barcodes from 31 to 40
 for barcode in range(31, 41):
-    # Load the read names from a CSV file where read names are stored in a column named 'Read Name'
-    data_path = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/BC{barcode}_chimeric_reads_results_ITRtoITRinsert.txt'
-    data = pd.read_csv(data_path, delimiter='\t')
-    read_names = set(data['Read Name'])  # Create a set of read names for efficient searching
+    process_barcode(barcode)
 
-    # Specify the path to the original FASTQ file and the output file
-    fastq_file = f'/Users/gwisna/Desktop/with__pear/BC{barcode}/BC{barcode}_umi.fastq'
-    output_file = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/BC{barcode}_chimeric_reads_results_ITRtoITRinsert.fastq'
-
-    # Filter the FASTQ file based on the read names extracted from the CSV
-    filter_fastq(fastq_file, read_names, output_file)
+print("Processing complete for all files.")
