@@ -24,7 +24,7 @@ regions = {
 }
 
 # Define the barcodes and corresponding colors
-barcodes = [16, 17, 18, 19]
+barcodes = [5,10,15,20]
 colors = ['blue', 'green', 'red', 'purple']
 
 # Dictionary to store counts of forward and reverse reads for each region for each barcode

@@ -52,9 +52,9 @@ plt.show()
 
 
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
+import matplotlib.pyplot as plt
+from pandas.api.types import CategoricalDtype
 
 # Detailed data points matched to categories
 data = {
@@ -89,29 +89,22 @@ data = {
 # Create DataFrame
 df = pd.DataFrame(data)
 
-# Sort the main DataFrame by 'Integration' and 'Type' to maintain consistency
-df = df.sort_values(by=['Integration', 'Type'])
+# Define the desired order of categories
+type_order = CategoricalDtype(['Forward_F9', 'Reverse_F9', 'ITR'], ordered=True)
+df['Type'] = df['Type'].astype(type_order)
 
-# Calculate the mean values for the bar plot
-mean_df = df.groupby(['Integration', 'Type']).mean().reset_index()
+# Calculate the median values for each group
+median_df = df.groupby(['Integration', 'Type']).median().reset_index()
 
-# Plotting
-plt.figure(figsize=(12, 8))
-bar_plot = sns.barplot(data=mean_df, x='Integration', y='Data', hue='Type', errorbar=None, palette='viridis')
+# Create pivot table for the heatmap using the median values
+pivot_df = median_df.pivot(index='Type', columns='Integration', values='Data')
 
-# Add individual points
-# Iterate through each bar and add scatter points
-for i in range(len(mean_df)):
-    integration = mean_df.loc[i, 'Integration']
-    type_ = mean_df.loc[i, 'Type']
-    subset = df[(df['Integration'] == integration) & (df['Type'] == type_)]['Data']
-    
-    # Determine x position for each type within the integration group
-    bar = bar_plot.patches[i]
-    x_values = np.full(len(subset), bar.get_x() + bar.get_width() / 2)
-    plt.scatter(x_values, subset, color='black', zorder=5)
+# Set font to Arial
+plt.rcParams["font.family"] = "Arial"
 
-plt.ylabel('Data')
-plt.title('Data by Type and Integration Time with Individual Points')
-plt.legend(title='Gene Type')
+# Plotting the heatmap
+plt.figure(figsize=(10, 6), dpi=600)
+ax = sns.heatmap(pivot_df, annot=True, cmap="OrRd", fmt=".3f", cbar_kws={'label': 'Median Percentage of Integration'})
+plt.title('Heatmap of Gene Integration by Type and Time Point')
+plt.savefig('/Users/gwisna/Desktop/heatmap_DNA_int_median.pdf', format='pdf', dpi=600)  # Save as PDF with high DPI
 plt.show()

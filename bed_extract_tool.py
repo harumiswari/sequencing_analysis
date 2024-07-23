@@ -55,7 +55,7 @@ chrom_map = {
 gtf_file = '/Users/gwisna/Mus_musculus.GRCm39.112.gtf'
 
 # Process multiple barcodes
-for barcode in range(31, 41):  # This now correctly processes barcodes 31 to 40
+for barcode in range(31, 41): 
     csv_filepath = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/BC{barcode}_integration_site_distribution_filtered.csv'
     bed_filepath = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/BC{barcode}_updated_positions.bed'
     output_file = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/BC{barcode}_annotated.txt'
@@ -96,5 +96,5 @@ def calculate_hits(file_path, output_file):
 # Process multiple barcodes
 for barcode in range(31, 41):  # Adjust the range as needed
     input_file = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/BC{barcode}_annotated.txt'
-    output_file = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/BC{barcode}_calculated.csv'
+    output_file = f'/Users/gwisna/Desktop/hF9mousecombined/BC{barcode}/BC{barcode}_calculated1.csv'
     calculate_hits(input_file, output_file)
