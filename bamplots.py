@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Path to your BAM file and synthetic reference FASTA file
-bam_file = "/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/IVT_TrialRun_1/EGFP/EGFP_IVTRNA_sorted_aligned_reads.bam"
-synthetic_fasta = "/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/IVT_TrialRun_1/EGFP/EGFPtranscriptome.fasta"
+bam_file = "/hdd/Long_read_alignment/Ckmgene_alignment/directdnaivck2secondrun_Ckmmouse_sorted.bam"
+synthetic_fasta = "/hdd/DRS/Ref_file/Ckmmouse.fa"
 
 # Open the BAM file with pysam
 samfile = pysam.AlignmentFile(bam_file, "rb")
@@ -21,9 +21,9 @@ samfile = pysam.AlignmentFile(bam_file, "rb")
 ref_fasta = pysam.FastaFile(synthetic_fasta)
 
 # Specify the synthetic reference sequence name and region of interest
-synthetic_sequence_name = "EGFPtranscriptome.fa"  # Example name in your synthetic FASTA
+synthetic_sequence_name = "NC_000073.7:19145019-19155508"  # Example name in your synthetic FASTA
 start_position = 1  # Change to your desired start position
-end_position = 726   # Change to your desired end position
+end_position = 10490   # Change to your desired end position
 
 # Initialize an array for coverage data
 coverage = np.zeros(end_position - start_position)
@@ -47,21 +47,27 @@ ref_fasta.close()
 # Plot the coverage
 plt.figure(figsize=(10, 4))
 plt.plot(range(start_position, end_position), coverage, color='blue')
-plt.title(f"Read Pileup for IVT-GFP:{start_position}-{end_position}")
+plt.title(f"Read Pileup for {synthetic_sequence_name}:{start_position}-{end_position}")
 plt.xlabel("Position")
 plt.ylabel("Coverage")
 plt.grid(True)
-plt.savefig('/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/IVT_TrialRun_1/EGFP/IVT_GFP_read_pileup.svg', format='svg')
+#plt.savefig('/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/IVT_TrialRun_1/EGFP/IVT_GFP_read_pileup.svg', format='svg')
 plt.show()
+
+###############################################3
 
 import pysam
 import matplotlib.pyplot as plt
 
 # Path to your BAM file and synthetic reference FASTA file
-bam_file = "/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/IVT_TrialRun_1/EGFP/EGFP_IVTRNA_sorted_aligned_reads.bam"
-synthetic_sequence_name = "EGFPtranscriptome.fa"  # Example name in your synthetic FASTA
+bam_file = "/hdd/LR_assembly_flye/directdnaseqIVCK2_medaka_output/calls_to_draft.bam"
+samfile = pysam.AlignmentFile(bam_file, "rb")
+print(samfile.header)
+
+synthetic_sequence_name = "NC_000073.7:19145019-19155508"
 start_position = 1  # Change to your desired start position
-end_position = 726  # Change to your desired end position
+#end_position = 4583  # Change to your desired end position
+end_position = 80000
 
 # Open the BAM file with pysam
 samfile = pysam.AlignmentFile(bam_file, "rb")
@@ -88,19 +94,28 @@ plt.figure(figsize=(10, 6))
 # Plot each read as a line from its start to end position with a unique y-position
 for start, end, y in zip(read_starts, read_ends, y_positions):
     plt.plot([start, end], [y, y], color='blue', alpha=0.5)
+# **Zoom in on the region of interest (2 kb - 6 kb)**
+plt.xlim(0, 10000)  # Adjust the x-axis limits to zoom in on 2kb-6kb
+plt.ylim(-1, 1500)  # Adjust y-limits to fit all reads
+plt.title(f"Individual Read Coverage for {synthetic_sequence_name}:2000-6000")
+plt.xlabel("Position")
+plt.ylabel("Reads")
+plt.grid(True)
+plt.show()
+
 
 # Adjust plot limits and labels
 plt.xlim(start_position, end_position)
 plt.ylim(-1, len(y_positions))  # Adjust y-limits to fit all reads
-plt.title(f"Individual Read Coverage for Lenti-GFP:{start_position}-{end_position}")
+plt.title(f"Individual Read Coverage for{synthetic_sequence_name}:{start_position}-{end_position}")
 plt.xlabel("Position")
 plt.ylabel("Reads")
 plt.grid(True)
-plt.savefig('/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/IVT_TrialRun_1/EGFP/IVT_GFP_individual_read_coverage.svg', format='svg')
+#plt.savefig('/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/IVT_TrialRun_1/EGFP/IVT_GFP_individual_read_coverage.svg', format='svg')
 plt.show()
 
 
-
+############################################
 
 import pysam
 import matplotlib.pyplot as plt
@@ -147,6 +162,7 @@ plt.grid(True)
 plt.savefig('/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/DRS-LentiGFP/DRS_lenti_GFP_individual_read_coverage.svg', format='svg')
 plt.show()
 
+######################################
 
 import pysam
 
@@ -176,7 +192,7 @@ print(f"Top {top_n} longest reads:")
 for read_name, read_length in read_lengths[:top_n]:
     print(f"Read Name: {read_name}, Length: {read_length}")
     
-
+###################################################3
 
 import pysam
 import matplotlib.pyplot as plt
@@ -207,4 +223,56 @@ plt.ylabel('Frequency')
 plt.grid(False)
 plt.savefig('/Users/gwisna/Library/CloudStorage/Box-Box/NELSONLAB/Direct RNA Seq/DRS-LentiGFP/DRS_lenti_GFP_alignment_quality_distribution.svg', format='svg')
 plt.show()
+
+###############################################
+
+import pysam
+import matplotlib.pyplot as plt
+
+# Path to your BAM file and consensus FASTA file
+bam_file = "/hdd/LR_assembly_flye/directdnaseqIVCK2_medaka_output/calls_to_draft.bam"
+samfile = pysam.AlignmentFile(bam_file, "rb")
+
+# Print BAM header to inspect available references (contigs)
+print(samfile.header)
+
+# Set start and end positions (you can adjust this as necessary)
+start_position = 1
+end_position = 80000  # Adjust based on your region of interest
+
+# Initialize a dictionary to store read positions for each contig
+contig_read_positions = {}
+
+# Iterate over each contig (reference sequence) in the BAM file
+for contig in samfile.references:
+    # Initialize lists to hold the start and end positions of reads for the current contig
+    read_starts = []
+    read_ends = []
+    
+    # Iterate over each read in the BAM file for the specified contig
+    for i, read in enumerate(samfile.fetch(contig, start_position, end_position)):
+        read_starts.append(read.reference_start)
+        read_ends.append(read.reference_end)
+    
+    # Store the start and end positions for the contig
+    contig_read_positions[contig] = (read_starts, read_ends)
+
+# Close the BAM file
+samfile.close()
+
+# Plot the read coverage for each contig
+plt.figure(figsize=(10, 6))
+
+# Iterate over the contig_read_positions dictionary to plot each contig's reads
+for contig, (read_starts, read_ends) in contig_read_positions.items():
+    if read_starts:  # Plot only if there are reads in this contig
+        y_positions = range(len(read_starts))
+        plt.plot([read_starts, read_ends], [y_positions, y_positions], color="blue", label=f"Contig: {contig}")
+
+# Customize the plot
+plt.xlabel("Position")
+plt.ylabel("Read Index")
+plt.title("BAM Read Coverage across Contigs")
+plt.legend()
+plt.savefig('/hdd/LR_assembly_flye/medaka.png', format='png')
 
