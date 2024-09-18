@@ -415,7 +415,7 @@ def parse_gtf(gtf_file, region):
     
     return exons
 
-def plot_sashimi_with_focus_on_boundary(bam_files, gtf_file, region, output_file, boundary_start=50, boundary_end=60):
+def plot_sashimi_with_focus_on_boundary(bam_files, gtf_file, region, output_file, boundary_start=23, boundary_end=83, min_read_length=100):
     """
     Generate a Sashimi plot from multiple BAM files and a GTF annotation file.
     Focuses on the specific boundary between Ckm and F9 and highlights junctions crossing this region.
@@ -442,9 +442,9 @@ def plot_sashimi_with_focus_on_boundary(bam_files, gtf_file, region, output_file
                         junctions[(start, end)] = 0
                     junctions[(start, end)] += 1
 
-    # Broaden the filter around the boundary to capture junctions
+    # Filter junctions around the boundary with a 30 bp buffer
     filtered_junctions = {(start, end): count for (start, end), count in junctions.items() 
-                          if boundary_start <= start <= boundary_end}
+                          if 1 <= start <= 53 and end > 53}
 
     # Summary of junction counts
     total_junctions = len(junctions)
@@ -501,6 +501,129 @@ def plot_sashimi_with_focus_on_boundary(bam_files, gtf_file, region, output_file
     plt.savefig("focused_boundary_sashimi.svg", format="svg")
     plt.show()
 
+
+# Usage example
+bam_files = [
+    "/hdd/STAR/Output/Sample_2_Aligned.sortedByCoord.out.bam",
+    "/hdd/STAR/Output/Sample_3_Aligned.sortedByCoord.out.bam",
+    "/hdd/STAR/Output/Sample_4_Aligned.sortedByCoord.out.bam",
+]
+
+gtf_file = "/home/cnelsonlab/F9mRNARACE.gtf"
+region = "F9mRNARACE:1-1266"  # Define the region of interest
+output_file = "/hdd/STAR/Output/Sample1_4_focused_boundary_sashimi.pdf"
+
+plot_sashimi_with_focus_on_boundary(bam_files, gtf_file, region, output_file, boundary_start=23, boundary_end=83, min_read_length=100)
+
+
+import pysam
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+
+def parse_gtf(gtf_file, region):
+    """
+    Parse the GTF file to extract exon information for the region of interest.
+    """
+    exons = []
+    chrom, region_range = region.split(":")
+    region_start, region_end = map(int, region_range.split("-"))
+    
+    gtf = pd.read_csv(gtf_file, sep="\t", comment="#", header=None, names=[
+        "seqname", "source", "feature", "start", "end", "score", "strand", "frame", "attribute"])
+    
+    for _, row in gtf.iterrows():
+        if row['seqname'] == chrom and row['feature'] == "exon":
+            if (row['start'] >= region_start and row['end'] <= region_end):
+                exons.append((row['start'], row['end']))
+    
+    return exons
+
+def plot_sashimi_based_on_exon_alignment(bam_files, gtf_file, region, output_file, min_exon1_length=20):
+    """
+    Generate a Sashimi plot based on alignment that covers at least 20 bp from Exon 1 and extends beyond 53 bp.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    junctions = {}
+    
+    chrom, region_range = region.split(":")
+    region_start, region_end = map(int, region_range.split("-"))
+
+    # Process each BAM file
+    for bam_file in bam_files:
+        samfile = pysam.AlignmentFile(bam_file, "rb")
+        for read in samfile.fetch(chrom, region_start, region_end):
+            if read.is_unmapped or read.is_secondary:
+                continue
+
+            # Get read alignment details
+            start = read.reference_start
+            end = read.reference_end
+
+            # Check if read covers at least 20 bp of Exon 1 and extends past 53 bp
+            if start <= 53 and (end - start >= min_exon1_length) and end > 53:
+                # Consider this read as valid and create an arc
+                if (start, end) not in junctions:
+                    junctions[(start, end)] = 0
+                junctions[(start, end)] += 1
+
+    # Summary of junction counts
+    total_junctions = len(junctions)
+    print(f"Total Junctions: {total_junctions}")
+    print(f"Filtered Junctions (with at least 20 bp in Exon 1 and crossing 53 bp): {total_junctions}")
+
+    # Handle the case where no junctions were found
+    if not junctions:
+        print("No valid junctions found with the specified criteria.")
+        return
+
+    # Write filtered output to a file
+    output_file = "filtered_junctions_exon1_boundary.txt"
+    with open(output_file, "w") as f:
+        f.write("Start\tEnd\tRead Count\n")
+        for (start, end), count in junctions.items():
+            f.write(f"{start}\t{end}\t{count}\n")
+    
+    print(f"Filtered junctions saved to {output_file}")
+
+    # Define a colormap based on the end positions of the junctions
+    end_positions = [end for _, end in junctions.keys()]
+    norm = mcolors.Normalize(vmin=min(end_positions), vmax=max(end_positions))
+    cmap = cm.get_cmap("coolwarm")  # You can change the colormap if desired
+
+    # Function to draw arcs with actual read counts
+    def add_arc_with_color(start, end, count, color):
+        arc_x = np.linspace(start, end, 100)
+        arc_y = count * np.sin(np.pi * (arc_x - start) / (end - start))  # Height based on actual read count
+        ax.plot(arc_x, arc_y, color=color, lw=2)
+
+    # Plot the arcs with colors based on end position
+    for (start, end), count in junctions.items():
+        color = cmap(norm(end))  # Get color based on the normalized end position
+        add_arc_with_color(start, end, count, color)
+
+    # Overlay exon structure from GTF
+    exon_colors = {
+        (1, 53): 'green',        # Exon 1 (Ckm)
+        (54, 59): 'blue',        # Exon 2 (Intermediary)
+        (60, 1266): 'purple'     # Exon 3 (F9)
+    }
+    
+    exons = parse_gtf(gtf_file, region)
+    for exon_start, exon_end in exons:
+        color = exon_colors.get((exon_start, exon_end), 'gray')
+        ax.add_patch(plt.Rectangle((exon_start, -0.2), exon_end - exon_start, 0.4, color=color, alpha=0.5))
+
+    ax.set_xlabel(f"Genomic Position: {region}")
+    ax.set_ylabel("Read Count (Junction Support)")  # Change label to reflect actual read counts
+    ax.set_title(f"Sashimi Plot Based on Exon Alignment for Region {region}")
+    
+    # Save plot as SVG
+    plt.savefig("filtered_exon1_boundary_sashimi.svg", format="svg")
+    plt.show()
+
 # Usage example
 bam_files = [
     "/hdd/DRS/Salmon_shortread/F9mRNARACE_aligned/Sample_1.bam",
@@ -510,7 +633,7 @@ bam_files = [
 ]
 
 gtf_file = "/home/cnelsonlab/F9mRNARACE.gtf"
-region = "F9mRNARACE:1-1266"  # Define the region of interest
-output_file = "/hdd/DRS/Salmon_shortread/F9mRNARACE_aligned/focused_boundary_sashimi.pdf"
+region = "F9mRNARACE:1-1000"  # Define the region of interest
+output_file = "/hdd/DRS/Salmon_shortread/F9mRNARACE_aligned/filtered_exon1_boundary_sashimi.pdf"
 
-plot_sashimi_with_focus_on_boundary(bam_files, gtf_file, region, output_file)
+plot_sashimi_based_on_exon_alignment(bam_files, gtf_file, region, output_file)
