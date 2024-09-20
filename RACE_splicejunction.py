@@ -486,11 +486,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import vcfpy
+import time  # Import time module for profiling
 
 def parse_gtf(gtf_file, region):
-    """
-    Parse the GTF file to extract exon information for the region of interest.
-    """
     exons = []
     chrom, region_range = region.split(":")
     region_start, region_end = map(int, region_range.split("-"))
@@ -506,9 +504,6 @@ def parse_gtf(gtf_file, region):
     return exons
 
 def parse_vcf(vcf_file):
-    """
-    Parse the VCF file to extract structural variants.
-    """
     sv_list = []
     sv_reader = vcfpy.Reader.from_path(vcf_file)
     for record in sv_reader:
@@ -521,9 +516,6 @@ def parse_vcf(vcf_file):
     return sv_list
 
 def plot_manhattan_sv_only(bam_files, gtf_file, vcf_file, region, output_file, min_exon1_length=20):
-    """
-    Generate a Manhattan plot for structural variants overlapping the same region as the reads.
-    """
     fig, manhattan_ax = plt.subplots(figsize=(10, 6))  # Only Manhattan plot
     
     junctions = {}
@@ -532,73 +524,71 @@ def plot_manhattan_sv_only(bam_files, gtf_file, vcf_file, region, output_file, m
     chrom, region_range = region.split(":")
     region_start, region_end = map(int, region_range.split("-"))
 
+    # Time parsing of GTF and VCF files
+    start_time = time.time()
     exons = parse_gtf(gtf_file, region)
-    sv_list = parse_vcf(vcf_file)  # Parse the VCF file for SVs
+    print(f"Time for parsing GTF: {time.time() - start_time:.2f} seconds")
 
-    # Extract Exon 1, Exon 2, and Exon 3 positions
-    exon1_start, exon1_end = 1, 53  # Exon 1 (Ckm)
-    exon2_start, exon2_end = 54, 59  # Exon 2 (Intermediary)
-    exon3_start, exon3_end = 60, 1266  # Exon 3 (F9)
+    start_time = time.time()
+    sv_list = parse_vcf(vcf_file)  # Parse the VCF file for SVs
+    print(f"Time for parsing VCF: {time.time() - start_time:.2f} seconds")
 
     # Process each BAM file
     for bam_file in bam_files:
+        print(f"Processing BAM file: {bam_file}")
         samfile = pysam.AlignmentFile(bam_file, "rb")
+
+        # Profile time for fetching reads
+        start_time = time.time()
+        read_count = 0
         for read in samfile.fetch(chrom, region_start, region_end):
+            read_count += 1
             if read.is_unmapped or read.is_secondary:
                 continue
 
-            # Get read alignment details
             start = read.reference_start
             end = read.reference_end
 
-            # Check if read covers at least 20 bp of Exon 1 (<=53)
             if start <= 53 and (min(53, end) - start >= min_exon1_length) and end > 53:
-                
-                # Now find where the alignment enters Exon 2 or Exon 3
-                exon2_start_match = None
-                exon3_start_match = None
-
-                # Use CIGAR tuples to locate exon alignment precisely
+                # Perform CIGAR operation check (time-consuming)
                 read_pos = start
                 for cigar_op, cigar_len in read.cigartuples:
                     if cigar_op == 0:  # Match or mismatch
-                        # Check if part of the read aligns to Exon 2
-                        if exon2_start <= read_pos < exon2_end:
-                            exon2_start_match = read_pos
+                        # Check alignment to Exon 2 or Exon 3
+                        if 54 <= read_pos < 59 or 60 <= read_pos < 1266:
                             break
-                        # Check if part of the read aligns to Exon 3
-                        elif exon3_start <= read_pos < exon3_end:
-                            exon3_start_match = read_pos
-                            break
-                    read_pos += cigar_len  # Move read position based on CIGAR operation length
-
-                # Check if read overlaps with any structural variants
+                    read_pos += cigar_len
+                
+                # Overlap check with SVs
                 for sv in sv_list:
                     sv_chrom, sv_start, sv_end, sv_type = sv
                     if sv_chrom == chrom and (sv_start <= end and sv_end >= start):  # Overlap check
                         sv_overlaps.append((sv_start, sv_end, sv_type))
 
+        print(f"Processed {read_count} reads from BAM file in {time.time() - start_time:.2f} seconds")
+
     # Plot Structural Variants (Manhattan plot)
+    print(f"Plotting {len(sv_overlaps)} structural variants")
+    start_time = time.time()
+    
     colors = {'DEL': 'red', 'INS': 'green', 'INV': 'blue', 'DUP': 'purple'}
     for sv_start, sv_end, sv_type in sv_overlaps:
         sv_size = sv_end - sv_start
         manhattan_ax.scatter(sv_start, sv_size, color=colors.get(sv_type, 'black'), s=50)
-    
+
     manhattan_ax.set_title('Manhattan Plot of Structural Variants Overlapping Sashimi Reads')
     manhattan_ax.set_xlabel('Genomic Position')
     manhattan_ax.set_ylabel('SV Size (bp)')
-    
+
     plt.tight_layout()
     plt.savefig(output_file, format="pdf")
     plt.show()
 
+    print(f"Plotting completed in {time.time() - start_time:.2f} seconds")
+
 # Example usage with your BAM and VCF files
 bam_files = [
-    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode08_sorted.bam",
-    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode09_sorted.bam",
-    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode10_sorted.bam",
-    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode11_sorted.bam"
-]
+    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/combined_sorted.bam"]
 
 gtf_file = "/home/cnelsonlab/F9mRNARACE.gtf"
 vcf_file = "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/min_5_combined_output_structural_variants.vcf"
