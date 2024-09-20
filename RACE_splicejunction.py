@@ -390,16 +390,16 @@ def plot_sashimi_based_on_exon_alignment(bam_files, gtf_file, region, output_fil
     plt.show()
 
 
-bam_files = [
-    "/hdd/STAR/Output/Sample_5_Aligned.sortedByCoord.out.bam",
-    "/hdd/STAR/Output/Sample_6_Aligned.sortedByCoord.out.bam",
-    "/hdd/STAR/Output/Sample_7_Aligned.sortedByCoord.out.bam",
-    "/hdd/STAR/Output/Sample_8_Aligned.sortedByCoord.out.bam",
-    "/hdd/STAR/Output/Sample_13_Aligned.sortedByCoord.out.bam",
-    "/hdd/STAR/Output/Sample_14_Aligned.sortedByCoord.out.bam",
-    "/hdd/STAR/Output/Sample_15_Aligned.sortedByCoord.out.bam",
-    "/hdd/STAR/Output/Sample_16_Aligned.sortedByCoord.out.bam",
-]
+#bam_files = [
+#    "/hdd/STAR/Output/Sample_5_Aligned.sortedByCoord.out.bam",
+#    "/hdd/STAR/Output/Sample_6_Aligned.sortedByCoord.out.bam",
+#    "/hdd/STAR/Output/Sample_7_Aligned.sortedByCoord.out.bam",
+#    "/hdd/STAR/Output/Sample_8_Aligned.sortedByCoord.out.bam",
+#    "/hdd/STAR/Output/Sample_13_Aligned.sortedByCoord.out.bam",
+#    "/hdd/STAR/Output/Sample_14_Aligned.sortedByCoord.out.bam",
+#    "/hdd/STAR/Output/Sample_15_Aligned.sortedByCoord.out.bam",
+#    "/hdd/STAR/Output/Sample_16_Aligned.sortedByCoord.out.bam",
+#]
 
 #bam_files = [
 #    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode08_sorted.bam",
@@ -416,3 +416,351 @@ output_file = "/hdd/DRS/Salmon_shortread/F9mRNARACE_aligned/filtered_exon1_to_ex
 plot_sashimi_based_on_exon_alignment(bam_files, gtf_file, region, output_file)
 
 
+##################manhattan visualizing structural variant########
+import pysam
+import vcfpy
+import matplotlib.pyplot as plt
+
+# Load the VCF file with structural variants
+vcf_file = "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/min_5_combined_output_structural_variants.vcf"
+vcf_reader = vcfpy.Reader.from_path(vcf_file)
+
+# Store detected SVs (insertions, deletions, etc.)
+sv_list = []
+sv_types = {"DEL": [], "INS": [], "INV": [], "DUP": []}  # Separate storage for different types of SVs
+
+for record in vcf_reader:
+    if "SVTYPE" in record.INFO:
+        sv_type = record.INFO['SVTYPE']
+        chrom = record.CHROM
+        pos = record.POS
+        end = record.INFO['END'] if 'END' in record.INFO else pos
+        
+        # Add to corresponding SV type list
+        if sv_type in sv_types:
+            sv_types[sv_type].append((chrom, pos, end))
+
+# Prepare Manhattan plot data (combine all SVs into one list)
+manhattan_data = []
+for sv_type, svs in sv_types.items():
+    for sv in svs:
+        chrom, start, end = sv
+        sv_size = end - start
+        manhattan_data.append((start, sv_size, sv_type))
+
+# Plot Manhattan-style plot
+plt.figure(figsize=(12, 6))
+
+# Define colors for each type of SV
+colors = {'DEL': 'red', 'INS': 'green', 'INV': 'blue', 'DUP': 'purple'}
+
+# Plot each SV with its size
+legend_added = set()
+for start, sv_size, sv_type in manhattan_data:
+    plt.scatter(start, sv_size, color=colors[sv_type], label=sv_type if sv_type not in legend_added else "", alpha=0.6, s=40)
+    legend_added.add(sv_type)
+
+# Annotate larger variants
+for start, sv_size, sv_type in manhattan_data:
+    if sv_size > 500:  # Only annotate large SVs
+        plt.text(start, sv_size + 20, f'{sv_size} bp', fontsize=8, color='black')
+
+# Set axis labels and title
+plt.xlabel('Genomic Position')
+plt.ylabel('SV Size (bp)')
+plt.title('Manhattan Plot of Structural Variants by Size')
+
+# Add legend (only one of each SV type)
+plt.legend(loc='upper right', markerscale=2)
+
+# Show plot
+plt.tight_layout()
+plt.savefig("vcf_RACE.svg", format = "svg")
+plt.show()
+
+
+
+#######combining sashimi output to manhattan code#####
+import pysam
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import vcfpy
+
+def parse_gtf(gtf_file, region):
+    """
+    Parse the GTF file to extract exon information for the region of interest.
+    """
+    exons = []
+    chrom, region_range = region.split(":")
+    region_start, region_end = map(int, region_range.split("-"))
+    
+    gtf = pd.read_csv(gtf_file, sep="\t", comment="#", header=None, names=[
+        "seqname", "source", "feature", "start", "end", "score", "strand", "frame", "attribute"])
+    
+    for _, row in gtf.iterrows():
+        if row['seqname'] == chrom and row['feature'] == "exon":
+            if (row['start'] >= region_start and row['end'] <= region_end):
+                exons.append((row['start'], row['end']))
+    
+    return exons
+
+def parse_vcf(vcf_file):
+    """
+    Parse the VCF file to extract structural variants.
+    """
+    sv_list = []
+    sv_reader = vcfpy.Reader.from_path(vcf_file)
+    for record in sv_reader:
+        if "SVTYPE" in record.INFO:
+            sv_type = record.INFO['SVTYPE']
+            chrom = record.CHROM
+            pos = record.POS
+            end = record.INFO['END'] if 'END' in record.INFO else pos
+            sv_list.append((chrom, pos, end, sv_type))
+    return sv_list
+
+def plot_manhattan_sv_only(bam_files, gtf_file, vcf_file, region, output_file, min_exon1_length=20):
+    """
+    Generate a Manhattan plot for structural variants overlapping the same region as the reads.
+    """
+    fig, manhattan_ax = plt.subplots(figsize=(10, 6))  # Only Manhattan plot
+    
+    junctions = {}
+    sv_overlaps = []
+
+    chrom, region_range = region.split(":")
+    region_start, region_end = map(int, region_range.split("-"))
+
+    exons = parse_gtf(gtf_file, region)
+    sv_list = parse_vcf(vcf_file)  # Parse the VCF file for SVs
+
+    # Extract Exon 1, Exon 2, and Exon 3 positions
+    exon1_start, exon1_end = 1, 53  # Exon 1 (Ckm)
+    exon2_start, exon2_end = 54, 59  # Exon 2 (Intermediary)
+    exon3_start, exon3_end = 60, 1266  # Exon 3 (F9)
+
+    # Process each BAM file
+    for bam_file in bam_files:
+        samfile = pysam.AlignmentFile(bam_file, "rb")
+        for read in samfile.fetch(chrom, region_start, region_end):
+            if read.is_unmapped or read.is_secondary:
+                continue
+
+            # Get read alignment details
+            start = read.reference_start
+            end = read.reference_end
+
+            # Check if read covers at least 20 bp of Exon 1 (<=53)
+            if start <= 53 and (min(53, end) - start >= min_exon1_length) and end > 53:
+                
+                # Now find where the alignment enters Exon 2 or Exon 3
+                exon2_start_match = None
+                exon3_start_match = None
+
+                # Use CIGAR tuples to locate exon alignment precisely
+                read_pos = start
+                for cigar_op, cigar_len in read.cigartuples:
+                    if cigar_op == 0:  # Match or mismatch
+                        # Check if part of the read aligns to Exon 2
+                        if exon2_start <= read_pos < exon2_end:
+                            exon2_start_match = read_pos
+                            break
+                        # Check if part of the read aligns to Exon 3
+                        elif exon3_start <= read_pos < exon3_end:
+                            exon3_start_match = read_pos
+                            break
+                    read_pos += cigar_len  # Move read position based on CIGAR operation length
+
+                # Check if read overlaps with any structural variants
+                for sv in sv_list:
+                    sv_chrom, sv_start, sv_end, sv_type = sv
+                    if sv_chrom == chrom and (sv_start <= end and sv_end >= start):  # Overlap check
+                        sv_overlaps.append((sv_start, sv_end, sv_type))
+
+    # Plot Structural Variants (Manhattan plot)
+    colors = {'DEL': 'red', 'INS': 'green', 'INV': 'blue', 'DUP': 'purple'}
+    for sv_start, sv_end, sv_type in sv_overlaps:
+        sv_size = sv_end - sv_start
+        manhattan_ax.scatter(sv_start, sv_size, color=colors.get(sv_type, 'black'), s=50)
+    
+    manhattan_ax.set_title('Manhattan Plot of Structural Variants Overlapping Sashimi Reads')
+    manhattan_ax.set_xlabel('Genomic Position')
+    manhattan_ax.set_ylabel('SV Size (bp)')
+    
+    plt.tight_layout()
+    plt.savefig(output_file, format="pdf")
+    plt.show()
+
+# Example usage with your BAM and VCF files
+bam_files = [
+    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode08_sorted.bam",
+    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode09_sorted.bam",
+    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode10_sorted.bam",
+    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode11_sorted.bam"
+]
+
+gtf_file = "/home/cnelsonlab/F9mRNARACE.gtf"
+vcf_file = "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/min_5_combined_output_structural_variants.vcf"
+region = "F9mRNARACE:1-1266"  # Define the region of interest
+output_file = "/hdd/DRS/Salmon_shortread/F9mRNARACE_aligned/combined_sv_manhattan.pdf"
+
+plot_manhattan_sv_only(bam_files, gtf_file, vcf_file, region, output_file)
+
+
+####upside down sashimi plot####
+import pysam
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+
+def parse_gtf(gtf_file, region):
+    """
+    Parse the GTF file to extract exon information for the region of interest.
+    """
+    exons = []
+    chrom, region_range = region.split(":")
+    region_start, region_end = map(int, region_range.split("-"))
+    
+    gtf = pd.read_csv(gtf_file, sep="\t", comment="#", header=None, names=[
+        "seqname", "source", "feature", "start", "end", "score", "strand", "frame", "attribute"])
+    
+    for _, row in gtf.iterrows():
+        if row['seqname'] == chrom and row['feature'] == "exon":
+            if (row['start'] >= region_start and row['end'] <= region_end):
+                exons.append((row['start'], row['end']))
+    
+    return exons
+
+def plot_sashimi_based_on_exon_alignment(bam_files_long, bam_files_short, gtf_file, region, output_file, min_exon1_length=20):
+    """
+    Generate a Sashimi plot with long-read data on top and short-read data upside down on the bottom
+    """
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
+
+    chrom, region_range = region.split(":")
+    region_start, region_end = map(int, region_range.split("-"))
+
+    exons = parse_gtf(gtf_file, region)
+
+    # Extract Exon 1, Exon 2, and Exon 3 positions
+    exon1_start, exon1_end = 1, 53  # Exon 1 (Ckm)
+    exon2_start, exon2_end = 54, 59  # Exon 2 (Intermediary)
+    exon3_start, exon3_end = 60, 1266  # Exon 3 (F9)
+
+    def process_bam_files(bam_files, ax, inverted=False):
+        junctions = {}
+
+        # Process each BAM file
+        for bam_file in bam_files:
+            samfile = pysam.AlignmentFile(bam_file, "rb")
+            for read in samfile.fetch(chrom, region_start, region_end):
+                if read.is_unmapped or read.is_secondary:
+                    continue
+
+                # Get read alignment details
+                start = read.reference_start
+                end = read.reference_end
+
+                # Check if read covers at least 20 bp of Exon 1 (<=53)
+                if start <= 53 and (min(53, end) - start >= min_exon1_length) and end > 53:
+                    
+                    # Now find where the alignment enters Exon 2 or Exon 3
+                    exon2_start_match = None
+                    exon3_start_match = None
+
+                    # Use CIGAR tuples to locate exon alignment precisely
+                    read_pos = start
+                    for cigar_op, cigar_len in read.cigartuples:
+                        if cigar_op == 0:  # Match or mismatch
+                            # Check if part of the read aligns to Exon 2
+                            if exon2_start <= read_pos < exon2_end:
+                                exon2_start_match = read_pos
+                                break
+                            # Check if part of the read aligns to Exon 3
+                            elif exon3_start <= read_pos < exon3_end:
+                                exon3_start_match = read_pos
+                                break
+                        read_pos += cigar_len  # Move read position based on CIGAR operation length
+
+                    # Determine the end of the arc (start of Exon 2 or 3)
+                    if exon2_start_match:
+                        arc_end = exon2_start_match
+                    elif exon3_start_match:
+                        arc_end = exon3_start_match
+                    else:
+                        continue  # No valid match for Exon 2 or 3, skip
+
+                    # Draw the arc from end of Exon 1 alignment to start of Exon 2 or 3
+                    arc_start = min(53, end)  # Arc starts where alignment in Exon 1 ends
+                    if (arc_start, arc_end) not in junctions:
+                        junctions[(arc_start, arc_end)] = 0
+                    junctions[(arc_start, arc_end)] += 1
+
+        # Plot arcs with colors based on end position
+        end_positions = [end for _, end in junctions.keys()]
+        if end_positions:
+            norm = mcolors.Normalize(vmin=min(end_positions), vmax=max(end_positions))
+            cmap = cm.get_cmap("coolwarm")
+
+            # Function to draw arcs with actual read counts
+            def add_arc_with_color(start, end, count, color):
+                arc_x = np.linspace(start, end, 100)
+                arc_y = count * np.sin(np.pi * (arc_x - start) / (end - start))  # Height based on actual read count
+                if inverted:
+                    arc_y = -arc_y  # Invert arc for the second plot
+                ax.plot(arc_x, arc_y, color=color, lw=2)
+
+            # Plot the arcs with colors based on end position
+            for (start, end), count in junctions.items():
+                color = cmap(norm(end))  # Get color based on the normalized end position
+                add_arc_with_color(start, end, count, color)
+
+        return junctions
+
+    # Process long-read BAM files (top plot)
+    process_bam_files(bam_files_long, ax1)
+
+    # Process short-read BAM files (bottom plot, inverted)
+    process_bam_files(bam_files_short, ax2, inverted=True)
+
+    # Overlay exon structure from GTF
+    exon_colors = {
+        (1, 53): 'green',        # Exon 1 (Ckm)
+        (54, 59): 'blue',        # Exon 2 (Intermediary)
+        (60, 1266): 'purple'     # Exon 3 (F9)
+    }
+
+    for exon_start, exon_end in exons:
+        color = exon_colors.get((exon_start, exon_end), 'gray')
+        ax1.add_patch(plt.Rectangle((exon_start, -0.2), exon_end - exon_start, 0.4, color=color, alpha=0.5))
+        ax2.add_patch(plt.Rectangle((exon_start, -0.2), exon_end - exon_start, 0.4, color=color, alpha=0.5))
+
+    ax1.set_title("Long-read Sashimi Plot")
+    ax2.set_title("Short-read Sashimi Plot (Upside Down)")
+
+    ax2.set_xlabel(f"Genomic Position: {region}")
+    ax1.set_ylabel("Read Count (Junction Support)")
+    ax2.set_ylabel("Read Count (Inverted)")
+
+    plt.savefig(output_file, format="svg")
+    plt.show()
+
+# Usage example
+bam_files_long = [
+    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode08_sorted.bam",
+    "/hdd/InvivoRACE__concatenated_fastq/Invivo_RACE_alignment_redo/barcode09_sorted.bam",
+]
+
+bam_files_short = [
+    "/hdd/STAR/Output/Sample_2_Aligned.sortedByCoord.out.bam",
+    "/hdd/STAR/Output/Sample_3_Aligned.sortedByCoord.out.bam",
+]
+
+gtf_file = "/home/cnelsonlab/F9mRNARACE.gtf"
+region = "F9mRNARACE:1-1266"  # Define the region of interest
+output_file = "/hdd/DRS/Salmon_shortread/F9mRNARACE_aligned/long_vs_short_sashimi.svg"
+
+plot_sashimi_based_on_exon_alignment(bam_files_long, bam_files_short, gtf_file, region, output_file)
